@@ -1,199 +1,152 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Data.SqlClient;
-using System.Text.Json;
+﻿using System.Data.SqlClient;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using proyectoHabitar_server.Datos;
+using proyectoHabitar_server.Modelos;
+using proyectoHabitar_server.Servicios;
 
 namespace proyectoHabitar_server.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Roles = Roles.Administrador)]
     public class UsuariosController : ControllerBase
     {
-        private readonly string _connectionString = "Server=(localdb)\\MSSQLLocalDB;Database=habitarBD;Trusted_Connection=True;";
+        private const string Columnas = "Id, Usuario, Email, Nombre, Apellido, DNI, Rol, Activo";
 
-        [HttpGet]
-        public IActionResult GetUsuarios()
+        private readonly Db _db;
+
+        public UsuariosController(Db db)
         {
-            var lista = new List<object>();
-
-            using (SqlConnection conn = new SqlConnection(_connectionString))
-            {
-                string query = "SELECT Id, Usuario, Email, Nombre, Apellido, DNI, Rol, Activo FROM Usuarios";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    try
-                    {
-                        conn.Open();
-                        using (SqlDataReader reader = cmd.ExecuteReader())
-                        {
-                            while (reader.Read())
-                            {
-                                lista.Add(new
-                                {
-                                    Id = reader.GetInt32(0),
-                                    Usuario = reader.GetString(1),
-                                    Email = reader.IsDBNull(2) ? "" : reader.GetString(2),
-                                    Nombre = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                                    Apellido = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                                    DNI = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                                    Rol = reader.IsDBNull(6) ? "" : reader.GetString(6),
-                                    Activo = reader.GetBoolean(7)
-                                });
-                            }
-                        }
-                        return Ok(lista);
-                    }
-                    catch (Exception ex)
-                    {
-                        return StatusCode(500, $"Error interno: {ex.Message}");
-                    }
-                }
-            }
+            _db = db;
         }
 
-
-        [HttpGet("{id}")]
-        public IActionResult GetUsuarioById(int id)
+        [HttpGet]
+        public ActionResult<List<UsuarioDto>> GetUsuarios()
         {
-            using (SqlConnection conn = new SqlConnection(_connectionString))
-            {
-                string query = "SELECT Id, Usuario, Email, Nombre, Apellido, DNI, Rol, Activo FROM Usuarios WHERE Id = @Id";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@Id", id);
-                    try
-                    {
-                        conn.Open();
-                        using (SqlDataReader reader = cmd.ExecuteReader())
-                        {
-                            if (reader.Read())
-                            {
-                                return Ok(new
-                                {
-                                    Id = reader.GetInt32(0),
-                                    Usuario = reader.GetString(1),
-                                    Email = reader.IsDBNull(2) ? "" : reader.GetString(2),
-                                    Nombre = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                                    Apellido = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                                    DNI = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                                    Rol = reader.IsDBNull(6) ? "" : reader.GetString(6),
-                                    Activo = reader.GetBoolean(7)
-                                });
-                            }
-                            return NotFound($"Usuario con Id {id} no encontrado.");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        return StatusCode(500, $"Error interno: {ex.Message}");
-                    }
-                }
-            }
+            var lista = new List<UsuarioDto>();
+
+            using var conexion = _db.Abrir();
+            using var comando = new SqlCommand($"SELECT {Columnas} FROM Usuarios ORDER BY Activo DESC, Apellido, Nombre", conexion);
+            using var reader = comando.ExecuteReader();
+            while (reader.Read())
+                lista.Add(Leer(reader));
+
+            return Ok(lista);
+        }
+
+        [HttpGet("{id:int}")]
+        public ActionResult<UsuarioDto> GetUsuarioById(int id)
+        {
+            using var conexion = _db.Abrir();
+            using var comando = new SqlCommand($"SELECT {Columnas} FROM Usuarios WHERE Id = @Id", conexion);
+            comando.Parameters.AddWithValue("@Id", id);
+            using var reader = comando.ExecuteReader();
+
+            if (reader.Read())
+                return Ok(Leer(reader));
+
+            return NotFound(new { mensaje = $"Usuario con Id {id} no encontrado." });
         }
 
         [HttpPost]
-        public IActionResult CrearUsuario([FromBody] dynamic nuevoUsuario)
+        public IActionResult CrearUsuario([FromBody] UsuarioCrearDto nuevo)
         {
-            using (SqlConnection conn = new SqlConnection(_connectionString))
+            const string query = @"INSERT INTO Usuarios (Usuario, Contrasena, Email, Nombre, Apellido, DNI, Rol, Activo)
+                                   VALUES (@Usuario, @Contrasena, @Email, @Nombre, @Apellido, @DNI, @Rol, 1);
+                                   SELECT CAST(SCOPE_IDENTITY() AS INT);";
+            try
             {
-                string query = @"INSERT INTO Usuarios (Usuario, Contrasena, Email, Nombre, Apellido, DNI, Rol, Activo) 
-                                 VALUES (@Usuario, @Contrasena, @Email, @Nombre, @Apellido, @DNI, @Rol, 1)";
+                using var conexion = _db.Abrir();
 
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    try
-                    {
-                      
-                        var elemento = JsonDocument.Parse(nuevoUsuario.ToString()).RootElement;
+                if (ExisteUsuario(conexion, nuevo.Usuario.Trim()))
+                    return Conflict(new { mensaje = $"Ya existe el usuario '{nuevo.Usuario.Trim()}'." });
 
-                        cmd.Parameters.AddWithValue("@Usuario", elemento.GetProperty("Usuario").GetString());
-                        cmd.Parameters.AddWithValue("@Contrasena", elemento.GetProperty("Contrasena").GetString());
-                        cmd.Parameters.AddWithValue("@Email", elemento.GetProperty("Email").GetString());
-                        cmd.Parameters.AddWithValue("@Nombre", elemento.GetProperty("Nombre").GetString());
-                        cmd.Parameters.AddWithValue("@Apellido", elemento.GetProperty("Apellido").GetString());
-                        cmd.Parameters.AddWithValue("@DNI", elemento.GetProperty("DNI").GetString());
-                        cmd.Parameters.AddWithValue("@Rol", elemento.GetProperty("Rol").GetString());
+                using var comando = new SqlCommand(query, conexion);
+                comando.Parameters.AddWithValue("@Usuario", nuevo.Usuario.Trim());
+                comando.Parameters.AddWithValue("@Contrasena", BCrypt.Net.BCrypt.HashPassword(nuevo.Contrasena));
+                comando.Parameters.AddWithValue("@Email", nuevo.Email?.Trim() ?? "");
+                comando.Parameters.AddWithValue("@Nombre", nuevo.Nombre.Trim());
+                comando.Parameters.AddWithValue("@Apellido", nuevo.Apellido.Trim());
+                comando.Parameters.AddWithValue("@DNI", nuevo.DNI?.Trim() ?? "");
+                comando.Parameters.AddWithValue("@Rol", nuevo.Rol);
 
-                        conn.Open();
-                        cmd.ExecuteNonQuery();
-                        return Ok(new { mensaje = "Usuario creado con éxito." });
-                    }
-                    catch (Exception ex)
-                    {
-                        return StatusCode(500, $"Error al guardar: {ex.Message}");
-                    }
-                }
+                int id = (int)comando.ExecuteScalar();
+                return Ok(new { id, mensaje = "Usuario creado con éxito." });
+            }
+            catch (SqlException ex) when (ex.EsClaveDuplicada())
+            {
+                return Conflict(new { mensaje = $"Ya existe el usuario '{nuevo.Usuario.Trim()}'." });
             }
         }
 
-        [HttpPut("{id}")]
-        public IActionResult ModificarUsuario(int id, [FromBody] dynamic datosActualizados)
+        [HttpPut("{id:int}")]
+        public IActionResult ModificarUsuario(int id, [FromBody] UsuarioEditarDto datos)
         {
-            using (SqlConnection conn = new SqlConnection(_connectionString))
-            {
-                string query = @"UPDATE Usuarios 
-                                 SET Email = @Email, Nombre = @Nombre, Apellido = @Apellido, DNI = @DNI, Rol = @Rol, Activo = @Activo 
-                                 WHERE Id = @Id";
+            if (id == User.IdUsuario() && (!datos.Activo || datos.Rol != Roles.Administrador))
+                return Conflict(new { mensaje = "No podés quitarte el rol de Administrador ni desactivar tu propio usuario." });
 
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    try
-                    {
-                        var elemento = JsonDocument.Parse(datosActualizados.ToString()).RootElement;
+            bool cambiaContrasena = !string.IsNullOrWhiteSpace(datos.Contrasena);
+            if (cambiaContrasena && datos.Contrasena!.Length < 6)
+                return BadRequest(new { mensaje = "La nueva contraseña debe tener al menos 6 caracteres." });
 
-                        cmd.Parameters.AddWithValue("@Id", id);
-                        cmd.Parameters.AddWithValue("@Email", elemento.GetProperty("Email").GetString());
-                        cmd.Parameters.AddWithValue("@Nombre", elemento.GetProperty("Nombre").GetString());
-                        cmd.Parameters.AddWithValue("@Apellido", elemento.GetProperty("Apellido").GetString());
-                        cmd.Parameters.AddWithValue("@DNI", elemento.GetProperty("DNI").GetString());
-                        cmd.Parameters.AddWithValue("@Rol", elemento.GetProperty("Rol").GetString());
-                        cmd.Parameters.AddWithValue("@Activo", elemento.GetProperty("Activo").GetBoolean());
+            string query = @"UPDATE Usuarios
+                             SET Email = @Email, Nombre = @Nombre, Apellido = @Apellido, DNI = @DNI, Rol = @Rol, Activo = @Activo"
+                           + (cambiaContrasena ? ", Contrasena = @Contrasena" : "")
+                           + " WHERE Id = @Id";
 
-                        conn.Open();
-                        int filasAfectadas = cmd.ExecuteNonQuery();
+            using var conexion = _db.Abrir();
+            using var comando = new SqlCommand(query, conexion);
+            comando.Parameters.AddWithValue("@Id", id);
+            comando.Parameters.AddWithValue("@Email", datos.Email?.Trim() ?? "");
+            comando.Parameters.AddWithValue("@Nombre", datos.Nombre.Trim());
+            comando.Parameters.AddWithValue("@Apellido", datos.Apellido.Trim());
+            comando.Parameters.AddWithValue("@DNI", datos.DNI?.Trim() ?? "");
+            comando.Parameters.AddWithValue("@Rol", datos.Rol);
+            comando.Parameters.AddWithValue("@Activo", datos.Activo);
+            if (cambiaContrasena)
+                comando.Parameters.AddWithValue("@Contrasena", BCrypt.Net.BCrypt.HashPassword(datos.Contrasena));
 
-                        if (filasAfectadas > 0)
-                            return Ok(new { mensaje = "Usuario actualizado correctamente." });
+            if (comando.ExecuteNonQuery() > 0)
+                return Ok(new { mensaje = "Usuario actualizado correctamente." });
 
-                        return NotFound("No se encontró el usuario para modificar.");
-                    }
-                    catch (Exception ex)
-                    {
-                        return StatusCode(500, $"Error al actualizar: {ex.Message}");
-                    }
-                }
-            }
+            return NotFound(new { mensaje = "No se encontró el usuario para modificar." });
         }
 
-
-        [HttpDelete("{id}")]
+        /// <summary>Baja lógica: el usuario queda inactivo y ya no puede iniciar sesión.</summary>
+        [HttpDelete("{id:int}")]
         public IActionResult EliminarUsuario(int id)
         {
-            using (SqlConnection conn = new SqlConnection(_connectionString))
-            {
-               
-                string query = "UPDATE Usuarios SET Activo = 0 WHERE Id = @Id";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@Id", id);
-                    try
-                    {
-                        conn.Open();
-                        int filasAfectadas = cmd.ExecuteNonQuery();
+            if (id == User.IdUsuario())
+                return Conflict(new { mensaje = "No podés dar de baja tu propio usuario." });
 
-                        if (filasAfectadas > 0)
-                            return Ok(new { mensaje = "Usuario dado de baja (Inactivo) correctamente." });
+            using var conexion = _db.Abrir();
+            using var comando = new SqlCommand("UPDATE Usuarios SET Activo = 0 WHERE Id = @Id", conexion);
+            comando.Parameters.AddWithValue("@Id", id);
 
-                        return NotFound("No se encontró el usuario.");
-                    }
-                    catch (Exception ex)
-                    {
-                        return StatusCode(500, $"Error al dar de baja: {ex.Message}");
-                    }
-                }
-            }
+            if (comando.ExecuteNonQuery() > 0)
+                return Ok(new { mensaje = "Usuario dado de baja (inactivo) correctamente." });
+
+            return NotFound(new { mensaje = "No se encontró el usuario." });
         }
+
+        private static bool ExisteUsuario(SqlConnection conexion, string usuario)
+        {
+            using var comando = new SqlCommand("SELECT COUNT(1) FROM Usuarios WHERE Usuario = @Usuario", conexion);
+            comando.Parameters.AddWithValue("@Usuario", usuario);
+            return Convert.ToInt32(comando.ExecuteScalar()) > 0;
+        }
+
+        private static UsuarioDto Leer(SqlDataReader r) => new()
+        {
+            Id = r.Entero("Id"),
+            Usuario = r.Texto("Usuario"),
+            Email = r.Texto("Email"),
+            Nombre = r.Texto("Nombre"),
+            Apellido = r.Texto("Apellido"),
+            DNI = r.Texto("DNI"),
+            Rol = r.Texto("Rol"),
+            Activo = r.Booleano("Activo")
+        };
     }
 }
