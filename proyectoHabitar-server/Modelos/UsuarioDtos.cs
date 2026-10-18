@@ -6,9 +6,8 @@ namespace proyectoHabitar_server.Modelos
     {
         public const string Administrador = "Administrador";
         public const string Encuestador = "Encuestador";
-        public const string Logistica = "Logística";
 
-        public const string PatronValidos = "^(Administrador|Encuestador|Logística)$";
+        public const string PatronValidos = "^(Administrador|Encuestador)$";
     }
 
     public class UsuarioDto

@@ -242,41 +242,6 @@ namespace proyectoHabitar_server.Controllers
         }
 
         /// <summary>
-        /// Vuelve a calcular puntaje y semáforo de todo el padrón con el algoritmo actual.
-        /// Hace falta correrlo una vez después de actualizar, porque las fichas viejas se puntuaron con las reglas anteriores.
-        /// </summary>
-        [HttpPost("recalcular-puntajes")]
-        [Authorize(Roles = Roles.Administrador)]
-        public IActionResult RecalcularPuntajes()
-        {
-            using var conexion = _db.Abrir();
-
-            var todos = new List<BeneficiarioDto>();
-            using (var leer = new SqlCommand($"SELECT {ColumnasDetalle} FROM Beneficiarios", conexion))
-            using (var reader = leer.ExecuteReader())
-            {
-                while (reader.Read())
-                    todos.Add(LeerDetalle(reader));
-            }
-
-            int cambiados = 0;
-            foreach (var b in todos)
-            {
-                var (puntaje, color) = _algoritmo.Evaluar(b);
-                if (puntaje == b.PuntajeCriticidad && color == b.ColorSemaforo) continue;
-
-                using var actualizar = new SqlCommand("UPDATE Beneficiarios SET PuntajeCriticidad = @P, ColorSemaforo = @C WHERE Id = @Id", conexion);
-                actualizar.Parameters.AddWithValue("@P", puntaje);
-                actualizar.Parameters.AddWithValue("@C", color);
-                actualizar.Parameters.AddWithValue("@Id", b.Id);
-                actualizar.ExecuteNonQuery();
-                cambiados++;
-            }
-
-            return Ok(new { mensaje = $"Se recalcularon {todos.Count} fichas; {cambiados} cambiaron de puntaje o color.", total = todos.Count, cambiados });
-        }
-
-        /// <summary>
         /// Ubica en el mapa a los beneficiarios que todavía no tienen coordenadas (de a tandas, por el límite de Nominatim).
         /// </summary>
         [HttpPost("geocodificar-pendientes")]

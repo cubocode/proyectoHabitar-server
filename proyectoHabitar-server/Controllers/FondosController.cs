@@ -14,7 +14,7 @@ namespace proyectoHabitar_server.Controllers
     /// </summary>
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize(Roles = Roles.Administrador + "," + Roles.Logistica)]
+    [Authorize(Roles = Roles.Administrador)]
     public class FondosController : ControllerBase
     {
         private const string Columnas = @"Id, FechaHora, Tipo, Categoria, Concepto, Detalle, Monto, MedioPago, Comprobante,

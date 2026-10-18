@@ -111,5 +111,5 @@ BEGIN
 END
 GO
 
-PRINT 'Migración v2 aplicada. Ahora ingresá como Administrador y usá "Recalcular puntajes" (Configuración) para re-puntuar el padrón.';
+PRINT 'Migración v2 aplicada. Las fichas nuevas o editadas se puntúan solas al guardarse.';
 GO
